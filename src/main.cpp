@@ -1,13 +1,22 @@
-#include <Arduino.h>
+#include "DAQ.h"
 
-#define white 12
-#define purple 13
+DAQ daq;
+
 
 void setup() {
-  pinMode(white, OUTPUT);
-  pinMode(purple, OUTPUT);
-  digitalWrite(white, HIGH);
-  digitalWrite(purple, HIGH);
+  Serial.begin(115200);
+  while(!Serial) {
+    // Wait for Serial to be ready
+  }
+  daq.setup();
+  daq.setWeightOffset();
 }
 
-void loop() {}
+void loop() {
+  serial_cmdHandler(&daq);
+  long weight = daq.getWeight();
+  Serial.print("Weight: ");
+  Serial.println(weight);
+
+  delay(100);
+}
