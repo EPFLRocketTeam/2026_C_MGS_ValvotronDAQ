@@ -1,5 +1,8 @@
 #include "DAQ.h"
 
+// global variable definition
+FSM_STATES currentState = IDLE;
+
 void update(DAQ *daq) {
     serial_cmdHandler(daq);
     switch(currentState) {
@@ -38,8 +41,9 @@ void update(DAQ *daq) {
 
 DAQ::DAQ() {
     weightOffset = 0;
+    pressureOffset = 0.0;
     calibrationFactor = 1.0; // Default to 1.0 to avoid division by zero
-    TCA9548 mux(MUX_ADDRESS, &Wire1); // Initialize multiplexer object
+    //mux = new TCA9548(MUX_ADDRESS, &Wire1); // Initialize multiplexer object
 }
 
 void DAQ::setup() {
@@ -52,9 +56,10 @@ void DAQ::setup() {
 }
 
 void DAQ::initLoadCell() {
-    scale.begin(DATA_PIN, CLK_PIN);
+    scale = new HX711();
+    scale->begin(DATA_PIN, CLK_PIN);
     delay(100); // Short delay to ensure HX711 is ready
-    if ( scale.is_ready() ) {
+    if ( scale->is_ready() ) {
         Serial.println("HX711 initialized successfully.");
     } else {
         Serial.println("Error: HX711 not detected during initialization.");
@@ -65,7 +70,16 @@ void DAQ::initPressureSensor() {
     Wire1.end(); // Ensure Wire1 is not already initialized
     delay(100); // Short delay to ensure clean start
     Wire1.begin(); // Initialize I2C on Wire1
+    mux = new TCA9548(MUX_ADDRESS, &Wire1); // Initialize multiplexer object
+    delay(100); // Short delay to ensure multiplexer is ready
+    if (mux->begin()) {
+        Serial.println("Multiplexer initialized successfully.");
+    } else {
+        Serial.println("Error: Multiplexer not detected during initialization.");
+    }
+    delay(100); // Short delay to ensure multiplexer is ready
     resetMux(); // Reset the multiplexer to ensure it's in a known state
+    delay(100); // Short delay after reset
     if (isPressureConnected()) {
         Serial.println("Pressure sensor initialized successfully.");
     } else {
@@ -74,21 +88,23 @@ void DAQ::initPressureSensor() {
 }
 
 void DAQ::setWeightOffset() {
-    static float weightOffsetSum = 0;
+    long weightOffsetSum = 0;
     const unsigned long timeToRead = 5000; // Time in milliseconds to read the weightOffset
-    static int readingsCount = 0;
+    int readingsCount = 0;
     unsigned long startTime = millis();
 
     Serial.println("Calibrating weightOffset... Please wait.");
     while (millis() - startTime < timeToRead) {
-        if (scale.is_ready()) {
-            weightOffsetSum += scale.read();
+        if (scale->is_ready()) {
+            weightOffsetSum += scale->read();
             readingsCount++;
         }
+        delay(10); // Short delay to avoid overwhelming the HX711 with continuous reads
     }
-
+    Serial.print("Total readings taken for weightOffset calibration: ");
+    Serial.println(readingsCount);
     if (readingsCount > 0) {
-        weightOffset = weightOffsetSum / readingsCount;
+        weightOffset = (long)(weightOffsetSum / readingsCount);
     }
     else {
         weightOffset = 0; // Default to 0 if no readings were taken
@@ -102,14 +118,14 @@ void DAQ::setWeightOffset() {
 
 void DAQ::setPressureOffset() {
     // Similar implementation to setWeightOffset, but for pressure sensor
-    static float pressureOffsetSum = 0;
-    const unsigned long timeToRead = 5000; // Time in milliseconds to read the pressureOffset
-    static int readingsCount = 0;
+    float pressureOffsetSum = 0;
+    const unsigned long timeToRead = 2000; // Time in milliseconds to read the pressureOffset
+    int readingsCount = 0;
     unsigned long startTime = millis();
 
     Serial.println("Calibrating pressureOffset... Please wait.");
+    mux->selectChannel(0); // Select the multiplexer channel
     while (millis() - startTime < timeToRead) {
-        mux.selectChannel(0); // Select the multiplexer channel
         if (isPressureConnected()) { // Check if the sensor is connected
             int16_t rawPressure = readRawPressure(); // Read the digital output
             if (rawPressure != ABERRANT_DATA) {
@@ -117,9 +133,10 @@ void DAQ::setPressureOffset() {
                 readingsCount++;
             }
         }
+        delay(10); // Short delay to avoid overwhelming the sensor with continuous reads
     }
     if (readingsCount > 0) {
-        pressureOffset = pressureOffsetSum / readingsCount;
+        pressureOffset = pressureOffsetSum / readingsCount + 16000; // Add 16000 to shift the offset to the middle of the sensor's range
     }
     else {
         pressureOffset = 0; // Default to 0 if no readings were taken
@@ -144,19 +161,19 @@ void DAQ::calibrate(float knownWeight) {
 float DAQ::getWeight() {
     static long digitalOutput = 0;
     static float weight = 0; // in grams
-    if (scale.is_ready()) {
-        digitalOutput = scale.read() - weightOffset;
+    if (scale->is_ready()) {
+        digitalOutput = scale->read() - weightOffset;
         weight = digitalOutput / calibrationFactor; // Convert to weight using the calibration factor
         return weight;
     }
-    return ABERRANT_DATA; // Return 99 if scale is not ready or reading is mischesque
+    return MAX_WEIGHT; // Return error value if scale is not ready or reading is mischesque
 }
 
 float DAQ::getPressure() {
-    mux.selectChannel(0); // Select the multiplexer channel
+    mux->selectChannel(0); // Select the multiplexer channel
   if (isPressureConnected()) { // Check if the sensor is connected
     int16_t rawPressure = readRawPressure(); // Read the digital output
-    return pressureToBar(rawPressure); // returns the converted pressure in bar
+    return pressureToBar(rawPressure - pressureOffset); // returns the converted pressure in bar
   }
   else {
     Serial.println("Pressure sensor not connected !");
@@ -170,8 +187,8 @@ float DAQ::getWeightAvg(unsigned long millisToRead) {
     unsigned long startTime = millis();
 
     while (millis() - startTime < millisToRead) {
-        if (scale.is_ready()) {
-            sum += scale.read() - weightOffset;
+        if (scale->is_ready()) {
+            sum += scale->read() - weightOffset;
             count++;
         }
     }
@@ -195,12 +212,12 @@ void DAQ::fireSequence() {
         }
         if (millis() - lastTime >= 5) { // Print every 5 ms
             lastTime = millis();
-            Serial.print(getPressure());
+            Serial.print(getPressure(), 3);
             Serial.print(",");
-            Serial.print(getWeight());
+            Serial.print(getWeight(), 3);
             Serial.print(",");
             Serial.print(millis() - startTime);
-            Serial.println();
+            Serial.println(";");
         }
 
     }
@@ -225,7 +242,7 @@ void DAQ::resetMux() {
 }
 
 bool DAQ::isPressureConnected() {
-    mux.selectChannel(0); // Select channel 0 for pressure sensor
+    mux->selectChannel(0); // Select channel 0 for pressure sensor
     Wire1.beginTransmission(SENSOR_ADDRESS);
     if (Wire1.endTransmission() == 0) {
         return true; // Sensor acknowledged, it's connected
@@ -260,6 +277,62 @@ float DAQ::pressureToBar(int16_t rawPressure) {
     return ((rawPressure - (-16000.0)) * (100.0) / (16000.0 - (-16000.0)));
 }
 
+void DAQ::printStatus() {
+    Serial.println("Current System Status:");
+    Serial.print("State: ");
+    switch (currentState) {
+        case IDLE:
+            Serial.println("IDLE");
+            break;
+        case LOADED:
+            Serial.println("LOADED");
+            break;
+        case ARMED:
+            Serial.println("ARMED");
+            break;
+        case FIRE:
+            Serial.println("FIRE");
+            break;
+        case LOAD_CELL_VERBOSE:
+            Serial.println("LOAD_CELL_VERBOSE");
+            break;
+        case PRESSURE_VERBOSE:
+            Serial.println("PRESSURE_VERBOSE");
+            break;
+        case RECOVER:
+            Serial.println("RECOVER");
+            break;
+        case SLEEP:
+            Serial.println("SLEEP");
+            break;
+        default:
+            Serial.println("UNKNOWN");
+    }
+    float weight = getWeight();
+    if (weight != ABERRANT_DATA) {
+        Serial.print("Current Weight: ");
+        Serial.print(weight);
+        Serial.println(" grams");
+    } else {
+        Serial.println("Current Weight: Unable to read weight.");
+    }
+    float pressure = getPressure();
+    if (pressure != ABERRANT_DATA) {
+        Serial.print("Current Pressure: ");
+        Serial.print(pressure);
+        Serial.println(" bar");
+    } else {
+        Serial.println("Current Pressure: Unable to read pressure.");
+    }
+    Serial.print("Weight Offset: ");
+    Serial.println(weightOffset);
+    Serial.print("Pressure Offset: ");
+    Serial.println(pressureOffset);
+    Serial.print("Calibration Factor: ");
+    Serial.println(calibrationFactor);
+    Serial.println("--------------------------------------------------------------");
+}
+
 
 
 
@@ -278,7 +351,9 @@ void serial_cmdHandler(DAQ *daq) {
         "arm",
         "disarm",
         "fire",
-        "restart"
+        "idle",
+        "restart",
+        "status"
     };
 
     static char cmd[32], arg1[32], arg2[32];
@@ -316,6 +391,10 @@ void serial_cmdHandler(DAQ *daq) {
                     return;
                 }
                 daq->calibrate(scaleValue);
+                Serial.println("command terminated.");
+            }
+            if (strcmp(arg1, "pressureOffset") == 0) { // set pressureOffset
+                daq->setPressureOffset();
                 Serial.println("command terminated.");
             }
             // Handle other commands similarly...
@@ -410,7 +489,15 @@ void serial_cmdHandler(DAQ *daq) {
             currentState = FIRE;
             Serial.println("State changed to FIRE.");
         }
-        if (strcmp(cmd, cmdStrings[7]) == 0) { // restart
+        if (strcmp(cmd, cmdStrings[7]) == 0) { // idle
+            if (currentState == ARMED || currentState == FIRE) {
+                Serial.println("Error: Cannot go idle from ARMED or FIRE state.");
+                return;
+            }
+            currentState = IDLE;
+            Serial.println("State changed to IDLE.");
+        }
+        if (strcmp(cmd, cmdStrings[8]) == 0) { // restart
             if (strlen(arg1) == 0) {
                 Serial.println("Error: Missing restart argument.");
                 return;
@@ -425,6 +512,10 @@ void serial_cmdHandler(DAQ *daq) {
                 daq->initPressureSensor();
                 Serial.println("command terminated.");
             }
+        }
+        if (strcmp(cmd, cmdStrings[9]) == 0) { // status
+            daq->printStatus();
+            Serial.println("command terminated.");
         }
     }
     else return;

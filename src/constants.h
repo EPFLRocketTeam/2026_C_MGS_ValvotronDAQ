@@ -7,6 +7,7 @@
 #define IGNITER_PIN 26
 
 #define ABERRANT_DATA 99 // in case it misch
+#define MAX_WEIGHT 1000000 // Maximum expected weight in grams for scaling purposes
 
 // addresses
 #define MUX_ADDRESS 0x70  // I2C default for PCA9546A multiplexer
@@ -21,7 +22,6 @@ enum FSM_STATES {
     FIRE,
     LOAD_CELL_VERBOSE,
     PRESSURE_VERBOSE,
-    IGNITER_TEST,
     RECOVER,
     SLEEP
 };

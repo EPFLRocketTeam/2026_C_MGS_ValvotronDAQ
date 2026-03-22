@@ -1,3 +1,5 @@
+#pragma once
+
 #include <arduino.h>
 #include "HX711.h"
 #include "constants.h"
@@ -16,10 +18,11 @@ class DAQ {
         void calibrate(float knownWeight);
         float getWeightAvg(unsigned long millisToRead);
         void fireSequence();
+        void printStatus();
     private:
         // variables
-        HX711 scale;
-        TCA9548 mux;
+        HX711 *scale = nullptr; // HX711 wrapper object, will be initialized in setup()
+        TCA9548 *mux = nullptr; // TCA9548 multiplexer object, will be initialized in setup()
         long weightOffset;
         float pressureOffset;
         float calibrationFactor;
@@ -31,7 +34,7 @@ class DAQ {
 };
 
 // global variables
-FSM_STATES currentState = IDLE;
+extern FSM_STATES currentState;
 
 void update(DAQ *daq);
 void serial_cmdHandler(DAQ *daq);
