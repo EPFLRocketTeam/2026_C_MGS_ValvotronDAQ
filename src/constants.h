@@ -4,7 +4,7 @@
 
 #define MUX_RESET_PIN 33
 
-#define IGNITER_PIN 26
+#define IGNITER_PIN 29
 
 #define ABERRANT_DATA 99 // in case it misch
 #define MAX_WEIGHT 1000000 // Maximum expected weight in grams for scaling purposes

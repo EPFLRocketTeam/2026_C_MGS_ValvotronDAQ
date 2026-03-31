@@ -147,6 +147,12 @@ void DAQ::setPressureOffset() {
     Serial.println("--------------------------------------------------------------");
 }
 
+void DAQ::setCalibrationFactor(float calFactor) {
+    calibrationFactor = calFactor;
+    Serial.print("Calibration factor set to: ");
+    Serial.println(calibrationFactor);
+}
+
 void DAQ::calibrate(float knownWeight) {
     float rawValue =  getWeightAvg(2500); // Average readings for 2.5 seconds
     if (rawValue != ABERRANT_DATA) {
@@ -206,8 +212,8 @@ void DAQ::fireSequence() {
     // data wrapper printing
     unsigned long startTime = millis();
     unsigned long lastTime = 0;
-    while (millis() - startTime < 10000) { // Print data for 10 seconds after firing
-        if (millis() - startTime >= 2000) {
+    while (millis() - startTime < 20000) { // Print data for 20 seconds after firing
+        if (millis() - startTime >= 1000) {
             digitalWrite(IGNITER_PIN, LOW); // Turn off igniter after 2 seconds
         }
         if (millis() - lastTime >= 5) { // Print every 5 ms
@@ -216,8 +222,7 @@ void DAQ::fireSequence() {
             Serial.print(",");
             Serial.print(getWeight(), 3);
             Serial.print(",");
-            Serial.print(millis() - startTime);
-            Serial.println(";");
+            Serial.println(millis() - startTime);
         }
 
     }
@@ -395,6 +400,33 @@ void serial_cmdHandler(DAQ *daq) {
             }
             if (strcmp(arg1, "pressureOffset") == 0) { // set pressureOffset
                 daq->setPressureOffset();
+                Serial.println("command terminated.");
+            }
+            if (strcmp(arg1, "calFactor") == 0) { // set calibrationFactor
+                if (strlen(arg2) == 0) {
+                    Serial.println("Error: Missing calibration factor value.");
+                    return;
+                }
+                if (currentState != IDLE) {
+                    Serial.println("Error: Calibration factor can only be set in IDLE state.");
+                    return;
+                }
+                float calFactorValue = atof(arg2);
+                daq->setCalibrationFactor(calFactorValue);
+                Serial.println("command terminated.");
+            }
+            if (strcmp(arg1, "igniter") == 0) { // set igniter
+                if (currentState != IDLE) {
+                    Serial.println("Error: Igniter test can only be performed in IDLE state.");
+                    return;
+                }
+                if (digitalRead(IGNITER_PIN) == HIGH) {
+                    Serial.println("Igniter is currently ON. Turning it OFF.");
+                    digitalWrite(IGNITER_PIN, LOW);
+                } else {
+                    Serial.println("Igniter is currently OFF. Turning it ON");
+                    digitalWrite(IGNITER_PIN, HIGH);
+                }
                 Serial.println("command terminated.");
             }
             // Handle other commands similarly...

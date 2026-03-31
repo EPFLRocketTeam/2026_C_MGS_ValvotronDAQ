@@ -13,6 +13,7 @@ class DAQ {
         void initPressureSensor();
         void setWeightOffset();
         void setPressureOffset();
+        void setCalibrationFactor(float calFactor);
         float getWeight();
         float getPressure();
         void calibrate(float knownWeight);

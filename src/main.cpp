@@ -4,7 +4,7 @@ DAQ daq;
 
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(1150200);
   while(!Serial) {
     // Wait for Serial to be ready
   }
